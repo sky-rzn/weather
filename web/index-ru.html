@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Метеостанция Мириево</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" type="image/png" href="/favicon.png">
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div>
+      <div class="station-title">
+        <span>Метеорологическая станция</span>
+        Мириево
+      </div>
+    </div>
+    <div class="meta">
+      <div class="update-time" id="lastUpdate">—</div>
+      <div class="update-indicator">
+        <div class="pulse-dot" id="pulseDot"></div>
+        <span id="statusText">Ожидание</span>
+      </div>
+    </div>
+    <div class="lang-switch">
+      <a href="/" class="btn">SR</a>
+    </div>
+  </header>
+
+  <div class="date-nav">
+    <button class="btn active" id="btnLive" onclick="toggleLive(true)">● Live</button>
+  </div>
+
+  <div class="grid" id="cardsGrid">
+
+    <!-- Ряд 1 -->
+    <div class="card clickable card--double" onclick="openChart('temp')">
+      <div class="card-header"><div class="card-title">Температура / Влажность</div><div class="card-icon">🌡</div></div>
+      <div class="card-value" id="hTemp">—<span>°C</span></div>
+      <div class="card-sub" id="hHumidity">влажность —%</div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('pressure')">
+      <div class="card-header"><div class="card-title">Давление</div><div class="card-icon">🔵</div></div>
+      <div class="card-value" id="cPressure">—<span>мм рт.ст.</span></div>
+      <div class="card-sub" id="cPressureSub">—</div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('wind')">
+      <div class="card-header"><div class="card-title">Ветер</div><div class="card-icon">🧭</div></div>
+      <div class="compass-wrap">
+        <div class="compass"><div class="compass-ring">
+          <div class="compass-n">С</div>
+          <div class="compass-arrow" id="windArrow"></div>
+        </div></div>
+        <div class="wind-details">
+          <div class="card-value" id="cWindspeed">—<span>м/с</span></div>
+          <div class="card-sub" id="cWindDir">—</div>
+          <div class="card-sub" id="cWindGust">порыв —</div>
+        </div>
+      </div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <!-- Ряд 2 -->
+    <div class="card clickable" onclick="openChart('dewpoint')">
+      <div class="card-header"><div class="card-title">Точка росы</div><div class="card-icon">💦</div></div>
+      <div class="card-value" id="cDewpt">—<span>°C</span></div>
+      <div class="card-sub" id="cDewptSub">дефицит влажности</div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('uv')">
+      <div class="card-header"><div class="card-title">UV-индекс</div><div class="card-icon">☀</div></div>
+      <div class="card-value" id="cUV">—<span></span></div>
+      <div class="meter"><div class="meter-fill" id="uvBar" style="background:linear-gradient(90deg,#4fc3f7,#ffd54f,#ff6b6b);width:0%"></div></div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('solar')">
+      <div class="card-header"><div class="card-title">Солнечное излучение</div><div class="card-icon">🌤</div></div>
+      <div class="card-value" id="cSolar">—<span>Вт/м²</span></div>
+      <div class="meter"><div class="meter-fill" id="solarBar" style="background:linear-gradient(90deg,#ffd54f,#fff176);width:0%"></div></div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+    <!-- Ряд 3 -->
+    <div class="card clickable" onclick="openChart('rain')">
+      <div class="card-header"><div class="card-title">Осадки</div><div class="card-icon">🌧</div></div>
+      <div class="card-value" id="cRain">—<span>мм</span></div>
+      <div class="card-sub" id="cRainSub">—</div>
+      <div class="chart-hint-card">📈 график за 24 ч</div>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="chart-modal" id="chartModal">
+  <div class="chart-modal-inner">
+    <div class="chart-modal-header">
+      <div>
+        <div class="chart-modal-title" id="modalTitle">График</div>
+        <div class="chart-modal-sub" id="modalPoints"></div>
+      </div>
+      <div class="modal-controls">
+        <div class="range-switch">
+          <button class="btn active" id="rangeBtn24h" onclick="switchRange('24h')">24ч</button>
+          <button class="btn" id="rangeBtn30d" onclick="switchRange('30d')">30д</button>
+        </div>
+        <button class="modal-close" onclick="closeChart()">✕</button>
+      </div>
+    </div>
+    <div class="chart-modal-body"><canvas id="modalChart"></canvas></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+window.APP_LOCALE = {
+  lang: 'ru',
+  windDirs: ['С','ССВ','СВ','ВСВ','В','ВЮВ','ЮВ','ЮЮВ','Ю','ЮЮЗ','ЮЗ','ЗЮЗ','З','ЗСЗ','СЗ','ССЗ'],
+  uvLabels: ['Низкий','Умеренный','Высокий','Очень высокий','Экстремальный'],
+  statusWaiting: 'Ожидание',
+  statusLoading: 'Загрузка…',
+  statusOk: 'Обновлено',
+  statusErrCurrent: 'Ошибка /current',
+  statusErrLoad: 'Ошибка загрузки',
+  lastUpdatePrefix: 'Последнее: ',
+  noDataAlert: 'Данные ещё не загружены',
+  dewptDeficitLabel: 'дефицит',
+  rainDailyLabel: 'суточный',
+  windGustLabel: 'порыв',
+  humidityLabel: 'влажность',
+  chartHoursSuffix: ' ч',
+  chartDaysSuffix: 'дней',
+  chartTitles: {
+    pressure: 'Давление за 24 часа',
+    dewpoint: 'Точка росы за 24 часа',
+    uv: 'UV-индекс за 24 часа',
+    solar: 'Солнечное излучение за 24 часа',
+    rain: 'Осадки за 24 часа',
+    wind: 'Скорость ветра за 24 часа',
+    temp: 'Температура за 24 часа',
+    humidity: 'Влажность за 24 часа',
+    pressure30d: 'Давление за 30 дней',
+    dewpoint30d: 'Точка росы за 30 дней',
+    uv30d: 'UV-индекс за 30 дней',
+    solar30d: 'Солнечное излучение за 30 дней',
+    rain30d: 'Осадки за 30 дней',
+    wind30d: 'Скорость ветра за 30 дней',
+    temp30d: 'Температура за 30 дней',
+    humidity30d: 'Влажность за 30 дней',
+  },
+  datasetLabels: {
+    pressure:  ['Давление','мм рт.ст.'],
+    dewpoint:  ['Точка росы','°C'],
+    uv:        ['UV',''],
+    solar:     ['Солнце','Вт/м²'],
+    rain:      ['','мм/ч'],
+    wind:      ['','м/с'],
+    windDir:   ['Направление','°'],
+    inTemp:    ['Темп.','°C'],
+    inHum:     ['Влажн.','%'],
+    temp:      ['Темп.','°C'],
+    humidity:  ['Влажн.','%'],
+  }
+};
+</script>
+<script src="app.js"></script>
+</body>
+</html>

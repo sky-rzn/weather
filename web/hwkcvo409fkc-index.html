@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meteorološka stanica Mirijevo</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Playfair+Display:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" type="image/png" href="/favicon.png">
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <div>
+      <div class="station-title">
+        <span>Meteorološka stanica</span>
+        Mirijevo
+      </div>
+    </div>
+    <div class="meta">
+      <div class="update-time" id="lastUpdate">—</div>
+      <div class="update-indicator">
+        <div class="pulse-dot" id="pulseDot"></div>
+        <span id="statusText">Čekanje</span>
+      </div>
+    </div>
+    <div class="lang-switch">
+      <a href="/hwkcvo409fkc-ru" class="btn">RU</a>
+    </div>
+  </header>
+
+  <div class="date-nav">
+    <button class="btn active" id="btnLive" onclick="toggleLive(true)">● Live</button>
+  </div>
+
+  <div class="grid" id="cardsGrid">
+
+    <!-- Ряд 1 -->
+    <div class="card clickable card--double" onclick="openChart('temp')">
+      <div class="card-header"><div class="card-title">Temperatura / Vlažnost</div><div class="card-icon">🌡</div></div>
+      <div class="card-value" id="hTemp">—<span>°C</span></div>
+      <div class="card-sub" id="hHumidity">vlažnost —%</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('pressure')">
+      <div class="card-header"><div class="card-title">Pritisak</div><div class="card-icon">🔵</div></div>
+      <div class="card-value" id="cPressure">—<span>mm Hg</span></div>
+      <div class="card-sub" id="cPressureSub">—</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('wind')">
+      <div class="card-header"><div class="card-title">Vetar</div><div class="card-icon">🧭</div></div>
+      <div class="compass-wrap">
+        <div class="compass"><div class="compass-ring">
+          <div class="compass-n">S</div>
+          <div class="compass-arrow" id="windArrow"></div>
+        </div></div>
+        <div class="wind-details">
+          <div class="card-value" id="cWindspeed">—<span>m/s</span></div>
+          <div class="card-sub" id="cWindDir">—</div>
+          <div class="card-sub" id="cWindGust">udari —</div>
+        </div>
+      </div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <!-- Ряд 2 -->
+    <div class="card clickable" onclick="openChart('dewpoint')">
+      <div class="card-header"><div class="card-title">Tačka rose</div><div class="card-icon">💦</div></div>
+      <div class="card-value" id="cDewpt">—<span>°C</span></div>
+      <div class="card-sub" id="cDewptSub">deficit vlažnosti</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('uv')">
+      <div class="card-header"><div class="card-title">UV-indeks</div><div class="card-icon">☀</div></div>
+      <div class="card-value" id="cUV">—<span></span></div>
+      <div class="meter"><div class="meter-fill" id="uvBar" style="background:linear-gradient(90deg,#4fc3f7,#ffd54f,#ff6b6b);width:0%"></div></div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('solar')">
+      <div class="card-header"><div class="card-title">Sunčevo zračenje</div><div class="card-icon">🌤</div></div>
+      <div class="card-value" id="cSolar">—<span>W/m²</span></div>
+      <div class="meter"><div class="meter-fill" id="solarBar" style="background:linear-gradient(90deg,#ffd54f,#fff176);width:0%"></div></div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <!-- Ряд 3 -->
+    <div class="card clickable" onclick="openChart('rain')">
+      <div class="card-header"><div class="card-title">Padavine</div><div class="card-icon">🌧</div></div>
+      <div class="card-value" id="cRain">—<span>mm</span></div>
+      <div class="card-sub" id="cRainSub">—</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('indoor')">
+      <div class="card-header"><div class="card-title">Unutra</div><div class="card-icon">🏠</div></div>
+      <div class="card-value" id="cIndoorTemp">—<span>°C</span></div>
+      <div class="card-sub" id="cIndoorHum">vlažnost —%</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+    <div class="card clickable" onclick="openChart('bathroom')">
+      <div class="card-header"><div class="card-title">Kupatilo</div><div class="card-icon">🛁</div></div>
+      <div class="card-value" id="cSoilTemp">—<span>°C</span></div>
+      <div class="card-sub" id="cSoilMoist">vlažnost —%</div>
+      <div class="chart-hint-card">📈 grafik za 24 h</div>
+    </div>
+
+  </div>
+
+</div>
+
+<div class="chart-modal" id="chartModal">
+  <div class="chart-modal-inner">
+    <div class="chart-modal-header">
+      <div>
+        <div class="chart-modal-title" id="modalTitle">Grafik</div>
+        <div class="chart-modal-sub" id="modalPoints"></div>
+      </div>
+      <div class="modal-controls">
+        <div class="range-switch">
+          <button class="btn active" id="rangeBtn24h" onclick="switchRange('24h')">24h</button>
+          <button class="btn" id="rangeBtn30d" onclick="switchRange('30d')">30d</button>
+        </div>
+        <button class="modal-close" onclick="closeChart()">✕</button>
+      </div>
+    </div>
+    <div class="chart-modal-body"><canvas id="modalChart"></canvas></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script>
+window.APP_LOCALE = {
+  lang: 'sr',
+  windDirs: ['S','SSI','SI','ISI','I','IJI','JI','JJI','J','JJZ','JZ','ZJZ','Z','ZSZ','SZ','SSZ'],
+  uvLabels: ['Nizak','Umeren','Visok','Vrlo visok','Ekstreman'],
+  statusWaiting: 'Čekanje',
+  statusLoading: 'Učitavanje…',
+  statusOk: 'Ažurirano',
+  statusErrCurrent: 'Greška /current',
+  statusErrLoad: 'Greška učitavanja',
+  lastUpdatePrefix: 'Poslednje: ',
+  noDataAlert: 'Podaci još nisu učitani',
+  dewptDeficitLabel: 'deficit',
+  rainDailyLabel: 'dnevno',
+  windGustLabel: 'udari',
+  humidityLabel: 'vlažnost',
+  chartHoursSuffix: ' h',
+  chartDaysSuffix: 'dana',
+  chartTitles: {
+    pressure: 'Pritisak za 24 sata',
+    dewpoint: 'Tačka rose za 24 sata',
+    uv: 'UV-indeks za 24 sata',
+    solar: 'Sunčevo zračenje za 24 sata',
+    rain: 'Padavine za 24 sata',
+    wind: 'Brzina vetra za 24 sata',
+    indoor: 'Unutra za 24 sata',
+    bathroom: 'Kupatilo za 24 sata',
+    temp: 'Temperatura za 24 sata',
+    humidity: 'Vlažnost za 24 sata',
+    pressure30d: 'Pritisak za 30 dana',
+    dewpoint30d: 'Tačka rose za 30 dana',
+    uv30d: 'UV-indeks za 30 dana',
+    solar30d: 'Sunčevo zračenje za 30 dana',
+    rain30d: 'Padavine za 30 dana',
+    wind30d: 'Brzina vetra za 30 dana',
+    indoor30d: 'Unutra za 30 dana',
+    bathroom30d: 'Kupatilo za 30 dana',
+    temp30d: 'Temperatura za 30 dana',
+    humidity30d: 'Vlažnost za 30 dana',
+  },
+  datasetLabels: {
+    pressure:  ['Pritisak','mm Hg'],
+    dewpoint:  ['Tač. rose','°C'],
+    uv:        ['UV',''],
+    solar:     ['Sunce','W/m²'],
+    rain:      ['','mm/h'],
+    wind:      ['','m/s'],
+    windDir:   ['Pravac','°'],
+    inTemp:    ['Temp.','°C'],
+    inHum:     ['Vlažn.','%'],
+    temp:      ['Temp.','°C'],
+    humidity:  ['Vlažn.','%'],
+  }
+};
+</script>
+<script src="app.js"></script>
+</body>
+</html>
