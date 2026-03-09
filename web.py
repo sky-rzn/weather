@@ -4,7 +4,12 @@ import os
 
 app = FastAPI()
 
-DB_DSN = os.getenv("DB_DSN", "postgresql://weather:1hHyh3md9JJkise340@localhost/weatherdb")
+DB_HOST = os.getenv("DB_HOST")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+
+DB_DSN = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}/{DB_NAME}"
 
 ALLOWED_FIELDS = {
     "out_t", "out_h", "out_d",
@@ -20,7 +25,7 @@ async def get_conn():
     return await asyncpg.connect(DB_DSN)
 
 def parse_fields(fields: list[str]) -> set[str]:
-    """Разбирает параметры ?fields=, возвращает множество активных полей."""
+    """Parse ?fields=, return active fields set."""
     requested: set[str] = set()
     for f in fields:
         for part in f.split(","):
@@ -44,11 +49,11 @@ def parse_fields(fields: list[str]) -> set[str]:
 
 async def fetch_aggregated(bucket_expr: str, interval: str, fields: list[str]) -> list[dict]:
     """
-    Универсальная функция агрегации.
+    Universal aggregation function.
 
-    bucket_expr — SQL-выражение для группировки по времени (алиас «bucket»).
-    interval    — строка интервала PostgreSQL, например '24 hours' или '30 days'.
-    fields      — список значений параметра ?fields=.
+    bucket_expr — SQL expression for time grupping
+    interval    — PostgreSQL interval, for example '24 hours' or '30 days'
+    fields      — ?fields= values set
     """
     active = parse_fields(fields)
 
@@ -99,14 +104,14 @@ async def current():
 @app.get("/24h")
 async def last_24h(fields: list[str] = Query(default=[])):
     """
-    Данные за последние 24 часа, агрегированные по 15-минутным интервалам.
+    Data for the last 24 hours, aggregated by 15-minutes periods.
 
-    Опциональный параметр ?fields= ограничивает набор возвращаемых полей.
+    Optional argument ?fields= limits returning fields set.
 
-    Примеры:
-        /24h                              — все поля
-        /24h?fields=out_t&fields=out_h    — несколько раз
-        /24h?fields=out_t,out_h,p         — через запятую
+    Examples:
+        /24h                              - all the fields
+        /24h?fields=out_t&fields=out_h    - repeated argument
+        /24h?fields=out_t,out_h,p         - separated by comma
     """
     bucket_expr = (
         "date_trunc('minute', ts)"
@@ -118,14 +123,14 @@ async def last_24h(fields: list[str] = Query(default=[])):
 @app.get("/30d")
 async def last_30d(fields: list[str] = Query(default=[])):
     """
-    Данные за последние 30 дней, агрегированные по суткам.
+    Data for the last 30 days, aggregated by days.
 
-    Опциональный параметр ?fields= ограничивает набор возвращаемых полей.
+    Optional argument ?fields= limits returning fields set.
 
-    Примеры:
-        /30d                              — все поля
-        /30d?fields=out_t&fields=out_h    — несколько раз
-        /30d?fields=out_t,out_h,p         — через запятую
+    Examples:
+        /30d                              - all the fields
+        /30d?fields=out_t&fields=out_h    - repeated argument
+        /30d?fields=out_t,out_h,p         - separated by comma
     """
     bucket_expr = "date_trunc('day', ts)"
     return await fetch_aggregated(bucket_expr, "30 days", fields)

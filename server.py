@@ -16,19 +16,26 @@ HOST = '0.0.0.0'
 PORT = 7777
 LOG_FILE = '/var/lib/weather/log/server.log'
 
-logger = logging.getLogger("server_logger")
+logger = logging.getLogger('server_logger')
 logger.setLevel(logging.INFO)
 handler = RotatingFileHandler(LOG_FILE, maxBytes=5*1024*1024, backupCount=100)
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+formatter = logging.Formatter('%(asctime)s [%(levelname)s] %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-DB_DSN = os.getenv('DB_DSN', 'host=localhost dbname=weatherdb user=weather password=1hHyh3md9JJkise340')
+DB_HOST = os.getenv('DB_HOST')
+DB_NAME = os.getenv('DB_NAME')
+DB_USER = os.getenv('DB_USER')
+DB_PASSWORD = os.getenv('DB_PASSWORD')
+
+STATION_ID = os.getenv('STATION_ID')
+STATION_PASSWORD = os.getenv('STATION_PASSWORD')
+
+DB_DSN = os.getenv('DB_DSN', f'host={DB_HOST} dbname={DB_NAME} user={DB_USER} password={DB_PASSWORD}')
 
 db_pool = pool.ThreadedConnectionPool(minconn=1, maxconn=10, dsn=DB_DSN)
 
 def f_to_c(val: str | None) -> float | None:
-    """Фаренгейт → Цельсий."""
     if val is None:
         return None
     try:
@@ -47,7 +54,6 @@ def to_float(val: str | None) -> float | None:
 
 
 def inhg_to_mmhg(val: str | None) -> float | None:
-    """inHg → мм рт. ст."""
     if val is None:
         return None
     try:
@@ -57,7 +63,6 @@ def inhg_to_mmhg(val: str | None) -> float | None:
 
 
 def in_to_mm(val: str | None) -> float | None:
-    """Дюймы осадков → мм."""
     if val is None:
         return None
     try:
@@ -86,7 +91,7 @@ def save_record(params: dict, ts: datetime) -> None:
         'prd':   in_to_mm(params.get('dailyrainin')),
     }
 
-    sql = """
+    sql = '''
         INSERT INTO raw_data
             (ts, out_t, out_h, out_d, in_t, in_h, in_t2, in_h2,
              p, uv, rad, wd, ws, wgs, pr, prd)
@@ -110,7 +115,7 @@ def save_record(params: dict, ts: datetime) -> None:
             wgs    = EXCLUDED.wgs,
             pr     = EXCLUDED.pr,
             prd    = EXCLUDED.prd;
-    """
+    '''
 
     conn = db_pool.getconn()
     try:
@@ -123,8 +128,8 @@ def save_record(params: dict, ts: datetime) -> None:
 
 def handle_client(conn, addr):
     now = datetime.now()
-    print(f"\n{'='*60}")
-    print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] Подключение от {addr[0]}:{addr[1]}")
+    print(f'\n{'='*60}')
+    print(f'[{now.strftime('%Y-%m-%d %H:%M:%S')}] Connection from {addr[0]}:{addr[1]}')
 
     raw = ''
 
@@ -143,27 +148,26 @@ def handle_client(conn, addr):
         raw += data.decode('utf-8', errors='replace')
 
         request_line = raw.split('\r\n')[0] if '\r\n' in raw else raw.split('\n')[0]
-        print(f"Запрос: {request_line[:120]}")
+        print(f'Request: {request_line[:120]}')
 
         parts = request_line.split(' ')
         if len(parts) < 2:
-            raise ValueError("Некорректный запрос")
+            raise ValueError('Incorrect request')
 
         if parts[0] != 'GET':
-            raise ValueError("Некорректный тип запроса")
+            raise ValueError('Incorrect request type')
 
         path = parts[1]
         parsed = urlparse(path)
         if parsed.path != '/weatherstation/updateweatherstation.php':
-            raise ValueError("Некорректный путь '%s'" % parsed.path)
+            raise ValueError('Incorrect path "%s"' % parsed.path)
 
         params = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-        if params['ID'] != '11160' or params['PASSWORD'] != 'gtd3jk76vxe17':
-            raise ValueError("Неизвестная станция")
+        if params['ID'] != STATION_ID or params['PASSWORD'] != STATION_PASSWORD:
+            raise ValueError('Unknown station')
 
 
         save_record(params, now)
-        print("  Сохранено в PostgreSQL")
 
         response_body = 'success\n'
         response = (
@@ -175,24 +179,24 @@ def handle_client(conn, addr):
             + response_body
         )
         conn.sendall(response.encode('utf-8'))
-        print("  Ответ отправлен: 200 OK")
+        print('  Sent response: 200 OK')
 
     except Exception as e:
-        print(f"  Ошибка обработки запроса: {e}")
+        print(f'  Response handling error: {e}')
         try:
             body = 'HAHAHA! FUCK OFF!'
             response = (
-                "HTTP/1.1 400 Bad Request\r\n"
-                "Content-Type: text/plain; charset=utf-8\r\n"
-                f"Content-Length: {len(body.encode())}\r\n"
-                "Connection: close\r\n"
-                "\r\n"
-                f"{body}"
+                'HTTP/1.1 400 Bad Request\r\n'
+                'Content-Type: text/plain; charset=utf-8\r\n'
+                f'Content-Length: {len(body.encode())}\r\n'
+                'Connection: close\r\n'
+                '\r\n'
+                f'{body}'
             )
             conn.sendall(response.encode())
         except Exception:
             pass
-        logger.info(f"========= [{addr[0]}:{addr[1]}] {e}")
+        logger.info(f'========= [{addr[0]}:{addr[1]}] {e}')
         logger.info(raw[:1000])
     finally:
         conn.close()
@@ -204,8 +208,8 @@ def main():
     server.bind((HOST, PORT))
     server.listen(10)
 
-    print(f"Сервер метеостанции запущен на порту {PORT}")
-    print("Ожидание подключений... (Ctrl+C для остановки)\n")
+    print('Weather station server runs')
+    print(f'Waiting connections on port {PORT}... (Ctrl+C for stop)\n')
     logger.info('******** server started ********')
 
     try:
@@ -214,7 +218,7 @@ def main():
             t = threading.Thread(target=handle_client, args=(conn, addr), daemon=True)
             t.start()
     except KeyboardInterrupt:
-        print("\nСервер остановлен.")
+        print('\nServer stopped.')
     finally:
         server.close()
         db_pool.closeall()
