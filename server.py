@@ -70,6 +70,13 @@ def in_to_mm(val: str | None) -> float | None:
     except (ValueError, TypeError):
         return None
 
+def mph_to_ms(val: str | None) -> float | None:
+    if val is None:
+        return None
+    try:
+        return round(float(val) * 0.44704, 4)
+    except (ValueError, TypeError):
+        return None
 
 def save_record(params: dict, ts: datetime) -> None:
     row = {
@@ -85,8 +92,8 @@ def save_record(params: dict, ts: datetime) -> None:
         'uv':    to_float(params.get('UV')),
         'rad':   to_float(params.get('solarradiation')),
         'wd':    to_float(params.get('winddir')),
-        'ws':    to_float(params.get('windspeedmph')),
-        'wgs':   to_float(params.get('windgustmph')),
+        'ws':    mph_to_ms(params.get('windspeedmph')),
+        'wgs':   mph_to_ms(params.get('windgustmph')),
         'pr':    in_to_mm(params.get('rainin')),
         'prd':   in_to_mm(params.get('dailyrainin')),
     }
