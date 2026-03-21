@@ -155,7 +155,7 @@ def handle_client(conn, addr):
         raw += data.decode('utf-8', errors='replace')
 
         request_line = raw.split('\r\n')[0] if '\r\n' in raw else raw.split('\n')[0]
-        print(f'Request: {request_line[:120]}')
+        print(f'Request: {request_line}')
 
         parts = request_line.split(' ')
         if len(parts) < 2:
