@@ -15,11 +15,12 @@ ALLOWED_FIELDS = {
     "out_t", "out_h", "out_d",
     "in_t",  "in_h",
     "in_t2", "in_h2",
-    "p", "ws", "wd", "uv", "rad", "pr",
+    "p", "ws", "wd", "uv", "rad", "pr", "prd",
 }
 
-SUM_FIELDS = {"pr"}
 VECTOR_FIELDS = {"wd"}
+
+MAX_FIELDS = {"prd"}
 
 async def get_conn():
     return await asyncpg.connect(DB_DSN)
@@ -59,12 +60,12 @@ async def fetch_aggregated(bucket_expr: str, interval: str, fields: list[str]) -
 
     select_parts = [f"{bucket_expr} AS bucket"]
     for field in sorted(active):
-        if field in SUM_FIELDS:
-            select_parts.append(f"sum({field})  AS {field}_sum")
-        elif field in VECTOR_FIELDS:
+        if field in VECTOR_FIELDS:
             select_parts.append(
                 f"(degrees(atan2(avg(sin(radians({field}))), avg(cos(radians({field}))))) + 360)::numeric % 360 AS {field}_avg"
             )
+        elif field in MAX_FIELDS:
+            select_parts.append(f"max({field})  AS {field}_max")
         else:
             select_parts.append(f"min({field})  AS {field}_min")
             select_parts.append(f"max({field})  AS {field}_max")
