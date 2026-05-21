@@ -3,6 +3,7 @@
 import socket
 import threading
 import os
+import time
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
 import logging
@@ -15,6 +16,16 @@ from psycopg2 import pool
 HOST = '0.0.0.0'
 PORT = 7777
 LOG_FILE = '/var/lib/weather/log/server.log'
+
+# --- Narodmon ---
+NARODMON_HOST = 'narodmon.ru'
+NARODMON_PORT = 8283
+# MAC устройства, под которым станция зарегистрирована на narodmon.ru
+NARODMON_MAC = os.getenv('NARODMON_MAC')
+# Минимальный разрешённый интервал между отправками — 5 минут.
+# Берём с запасом, чтобы не словить бан по флуду.
+NARODMON_MIN_INTERVAL = int(os.getenv('NARODMON_MIN_INTERVAL', '300'))
+NARODMON_TIMEOUT = 10.0
 
 logger = logging.getLogger('server_logger')
 logger.setLevel(logging.INFO)
@@ -78,7 +89,7 @@ def mph_to_ms(val: str | None) -> float | None:
     except (ValueError, TypeError):
         return None
 
-def save_record(params: dict, ts: datetime) -> None:
+def save_record(params: dict, ts: datetime) -> dict:
     row = {
         'ts':    ts,
         'out_t': f_to_c(params.get('tempf')),
@@ -132,6 +143,112 @@ def save_record(params: dict, ts: datetime) -> None:
     finally:
         db_pool.putconn(conn)
 
+    return row
+
+
+# --- Narodmon: throttling и отправка ---
+_narodmon_lock = threading.Lock()
+_narodmon_last_sent = 0.0  # monotonic timestamp последней отправки
+
+
+def _format_value(v):
+    """Narodmon ожидает числовые значения как простые float-литералы."""
+    if v is None:
+        return None
+    if isinstance(v, float):
+        # без научной записи и лишних нулей
+        return f'{v:.4f}'.rstrip('0').rstrip('.')
+    return str(v)
+
+
+def build_narodmon_packet(mac: str, row: dict) -> str | None:
+    """
+    Собирает TCP-пакет для narodmon.ru из row, подготовленного save_record.
+    Отправляем только уличные датчики; внутренние (in_*) пропускаем.
+
+    Формат:
+        #MAC\n
+        #sensorId#value\n
+        ...
+        ##
+    Имена датчиков начинаются с буквы, понятной narodmon (T — температура,
+    H — влажность, P — давление, W — ветер и т. п.) — сервис сам определит тип.
+    """
+    # Маппинг ключ из row -> имя датчика на narodmon.
+    # Префикс mac обеспечивает уникальность ID в рамках устройства.
+    outdoor_sensors = [
+        ('out_t', 'T1'),    # температура воздуха, °C
+        ('out_h', 'H1'),    # влажность воздуха, %
+        ('out_d', 'T2'),    # точка росы, °C
+        ('p',     'P1'),    # давление, мм рт. ст.
+        ('uv',    'UV1'),   # УФ-индекс
+        ('rad',   'RAD1'),  # солнечная радиация, Вт/м²
+        ('wd',    'WD1'),   # направление ветра, °
+        ('ws',    'WS1'),   # скорость ветра, м/с
+        ('wgs',   'WG1'),   # порыв ветра, м/с
+        ('pr',    'PR1'),   # осадки за период, мм
+        ('prd',   'PRD1'),  # осадки за сутки, мм
+    ]
+
+    lines = [f'#{mac}']
+    for key, sensor_name in outdoor_sensors:
+        val = _format_value(row.get(key))
+        if val is None:
+            continue
+        # ID датчика = MAC + имя, чтобы был уникален у устройства
+        lines.append(f'#{mac}{sensor_name}#{val}')
+
+    if len(lines) == 1:
+        # нет ни одного значения — отправлять нечего
+        return None
+
+    return '\n'.join(lines) + '\n##'
+
+
+def send_to_narodmon(row: dict) -> None:
+    """
+    Отправляет уличные показания на narodmon.ru.
+    Учитывает минимальный интервал между отправками. В случае ошибки —
+    логирует и молча выходит, чтобы не ломать основной поток сохранения.
+    """
+    if not NARODMON_MAC:
+        return
+
+    global _narodmon_last_sent
+    now_mono = time.monotonic()
+
+    with _narodmon_lock:
+        if now_mono - _narodmon_last_sent < NARODMON_MIN_INTERVAL:
+            # слишком рано — пропускаем
+            return
+        # резервируем слот заранее, чтобы параллельные потоки
+        # не пытались отправить одновременно
+        _narodmon_last_sent = now_mono
+
+    packet = build_narodmon_packet(NARODMON_MAC, row)
+    if packet is None:
+        logger.info('narodmon: нет данных для отправки')
+        return
+
+    try:
+        with socket.create_connection(
+            (NARODMON_HOST, NARODMON_PORT), timeout=NARODMON_TIMEOUT
+        ) as s:
+            s.sendall(packet.encode('utf-8'))
+            try:
+                resp = s.recv(1024).decode('utf-8', errors='replace').strip()
+            except socket.timeout:
+                resp = '<no response>'
+        print(f'  narodmon: sent, response: {resp!r}')
+        logger.info('narodmon: sent OK, response: %s', resp)
+    except (socket.error, OSError) as e:
+        # Откатываем штамп, чтобы можно было попытаться отправить
+        # на следующем приходе данных, а не ждать полный интервал.
+        with _narodmon_lock:
+            _narodmon_last_sent = 0.0
+        print(f'  narodmon: send error: {e}')
+        logger.warning('narodmon: send error: %s', e)
+
 
 def handle_client(conn, addr):
     now = datetime.now()
@@ -174,7 +291,14 @@ def handle_client(conn, addr):
             raise ValueError('Unknown station')
 
 
-        save_record(params, now)
+        row = save_record(params, now)
+
+        # Отправляем уличные показания в Народный мониторинг.
+        # В отдельном потоке, чтобы не задерживать ответ метеостанции
+        # и не уронить основной обработчик при сетевых ошибках narodmon.
+        threading.Thread(
+            target=send_to_narodmon, args=(row,), daemon=True
+        ).start()
 
         response_body = 'success\n'
         response = (
