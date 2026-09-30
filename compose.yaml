@@ -1,0 +1,35 @@
+# Погодная станция на vps2: коллектор (порт 7777) и API (127.0.0.1:8001).
+#
+# network_mode: host — контейнеры видят PostgreSQL хоста как раньше
+# (тот же DB_HOST в /etc/weather/env) и слушают те же порты, так что
+# ни станцию, ни nginx, ни pg_hba трогать не нужно.
+# Статику (web/) nginx хоста раздаёт прямо из чекаута /srv/weather/web.
+#
+# WEATHER_UID / WEATHER_GID выставляет deploy/deploy.sh из пользователя weather;
+# значения по умолчанию — его uid/gid на vps2, чтобы работали docker compose logs/ps.
+
+name: weather
+
+x-common: &common
+  network_mode: host
+  env_file: /etc/weather/env
+  environment:
+    TZ: Europe/Berlin
+  user: "${WEATHER_UID:-999}:${WEATHER_GID:-982}"
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  collector:
+    <<: *common
+    build: { context: ., target: collector }
+    image: weather-collector
+    volumes:
+      - /var/lib/weather/log:/var/lib/weather/log
+
+  api:
+    <<: *common
+    build: { context: ., target: api }
+    image: weather-api

@@ -1,0 +1,15 @@
+#!/bin/bash
+# Устанавливается в /usr/local/bin/weather-deploy.
+# Это forced command SSH-ключа, которым GitHub Actions деплоит погоду:
+# что бы ни прислал клиент, выполняется только этот скрипт.
+#
+# Скрипт лежит вне репозитория намеренно: git reset не должен
+# переписывать файл, который bash в этот момент читает.
+set -euo pipefail
+exec 9>/run/lock/weather-deploy.lock
+flock 9
+
+cd /srv/weather
+git fetch --quiet origin main
+git reset --quiet --hard origin/main
+exec deploy/deploy.sh
