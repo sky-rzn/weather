@@ -1,6 +1,6 @@
 #!/bin/bash
 # Пересборка и перезапуск контейнеров из текущего чекаута.
-# Вызывается из /usr/local/bin/weather-deploy после git reset.
+# Вызывается из /usr/local/bin/weather-deploy после обновления чекаута.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

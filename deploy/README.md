@@ -45,3 +45,7 @@ cd /srv/weather && docker compose down
 systemctl enable --now weather.service weather-api.service
 # и вернуть root /var/lib/weather/web; в /etc/nginx/sites-available/weather
 ```
+
+`/usr/local/bin/weather-deploy` автодеплой не обновляет (он сам его запускает).
+После правки `deploy/weather-deploy` поставить руками:
+`install -m 755 /srv/weather/deploy/weather-deploy /usr/local/bin/weather-deploy`.
