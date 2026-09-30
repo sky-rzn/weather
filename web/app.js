@@ -205,10 +205,12 @@ function buildChartConfigs() {
 // ============================================================
 // STATE
 // ============================================================
-let dataCache = {};        // key → 24h data
-let dataCache30d = {};     // key → 30d data
+let dataCache = {};        // "key|day" → 24h data
+let dataCache30d = {};     // "key|month" → 30d data
 let activeChartKey = null;
 let activeRange = '24h';   // '24h' | '30d'
+let selectedDay = null;    // 'YYYY-MM-DD' | null (null = последние 24 часа)
+let selectedMonth = null;  // 'YYYY-MM' | null (null = последние 30 дней)
 let liveMode = true;
 let refreshTimer = null;
 let modalChart = null;
@@ -217,6 +219,30 @@ let CHART_CONFIGS = {};
 // ============================================================
 // DATE LABEL HELPERS
 // ============================================================
+const pad2 = n => String(n).padStart(2, '0');
+
+function isoDay(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function isoMonth(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
+}
+
+function parseIsoDay(s) {
+  const [y, m, d] = s.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function cacheKey(cardKey, period) {
+  return `${cardKey}|${period || ''}`;
+}
+
+// "2026-09-15" → "15.09.2026", "2026-09" → "09.2026"
+function periodLabel(period) {
+  return period ? period.split('-').reverse().join('.') : '';
+}
+
 function labelFor24h(d) {
   return d.bucket ? d.bucket.slice(11, 16) : '';
 }
@@ -308,11 +334,12 @@ function renderCurrent(d) {
 // ============================================================
 // FETCH 24h
 // ============================================================
-async function loadChartData(cardKey) {
+async function loadChartData(cardKey, day = null) {
   const fields = CHART_FIELDS[cardKey];
   if (!fields) return;
 
-  const params = fields.map(f => `fields=${encodeURIComponent(f)}`).join('&');
+  let params = fields.map(f => `fields=${encodeURIComponent(f)}`).join('&');
+  if (day) params += `&date=${day}`;
   const url = `/24h?${params}`;
 
   setStatus(L.statusLoading, false);
@@ -320,7 +347,7 @@ async function loadChartData(cardKey) {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    dataCache[cardKey] = Array.isArray(data) ? data : [data];
+    dataCache[cacheKey(cardKey, day)] = Array.isArray(data) ? data : [data];
     setStatus(L.statusOk, true);
   } catch(e) {
     setStatus(L.statusErrLoad, false, true);
@@ -331,19 +358,20 @@ async function loadChartData(cardKey) {
 // ============================================================
 // FETCH 30d
 // ============================================================
-async function loadChartData30d(cardKey) {
+async function loadChartData30d(cardKey, month = null) {
   const fields = CHART_FIELDS_30D[cardKey];
   if (!fields) return;
 
   const params = fields.join(',');
-  const url = `/30d?fields=${encodeURIComponent(params)}`;
+  let url = `/30d?fields=${encodeURIComponent(params)}`;
+  if (month) url += `&month=${month}`;
 
   setStatus(L.statusLoading, false);
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    dataCache30d[cardKey] = Array.isArray(data) ? data : [data];
+    dataCache30d[cacheKey(cardKey, month)] = Array.isArray(data) ? data : [data];
     setStatus(L.statusOk, true);
   } catch(e) {
     setStatus(L.statusErrLoad, false, true);
@@ -369,11 +397,17 @@ function toggleLive(on) {
     refreshTimer = setInterval(() => {
       if (liveMode) {
         loadCurrent();
-        if (activeChartKey && activeRange === '24h') {
-          loadChartData(activeChartKey).then(() => {
-            const data = dataCache[activeChartKey];
-            if (data && modalChart) buildModalChart(activeChartKey, data, '24h');
-          });
+        // Обновляем график, только если он показывает текущий период
+        const now = new Date();
+        const period = currentPeriod();
+        const isCurrent = activeRange === '24h'
+          ? (period === null || period === isoDay(now))
+          : (period === null || period === isoMonth(now));
+        if (activeChartKey && modalChart && isCurrent) {
+          const load = activeRange === '24h'
+            ? loadChartData(activeChartKey, period)
+            : loadChartData30d(activeChartKey, period);
+          load.then(showActiveChart);
         }
       }
     }, REFRESH_INTERVAL);
@@ -389,32 +423,100 @@ function switchRange(range) {
 
   document.getElementById('rangeBtn24h').classList.toggle('active', range === '24h');
   document.getElementById('rangeBtn30d').classList.toggle('active', range === '30d');
+  syncPeriodControls();
 
-  if (!activeChartKey) return;
+  showActiveChart();
+}
 
-  if (range === '24h') {
-    const data = dataCache[activeChartKey];
-    if (data) {
-      buildModalChart(activeChartKey, data, '24h');
-    } else {
-      document.getElementById('modalPoints').textContent = L.statusLoading;
-      loadChartData(activeChartKey).then(() => {
-        const d = dataCache[activeChartKey];
-        if (d) buildModalChart(activeChartKey, d, '24h');
-      });
-    }
+// ============================================================
+// PERIOD SELECTION inside modal
+// ============================================================
+function currentPeriod() {
+  return activeRange === '24h' ? selectedDay : selectedMonth;
+}
+
+function syncPeriodControls() {
+  const is24h = activeRange === '24h';
+  const now = new Date();
+  const dayInput = document.getElementById('periodDay');
+  const monthInput = document.getElementById('periodMonth');
+  dayInput.hidden = !is24h;
+  monthInput.hidden = is24h;
+  dayInput.max = isoDay(now);
+  monthInput.max = isoMonth(now);
+  dayInput.value = selectedDay || '';
+  monthInput.value = selectedMonth || '';
+  document.getElementById('periodNext').disabled = currentPeriod() === null;
+}
+
+function selectDay(value) {
+  selectedDay = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+  syncPeriodControls();
+  showActiveChart();
+}
+
+function selectMonth(value) {
+  // Браузеры без <input type="month"> показывают текстовое поле
+  selectedMonth = /^\d{4}-\d{2}$/.test(value) ? value : null;
+  syncPeriodControls();
+  showActiveChart();
+}
+
+// Шаг на день/месяц назад (-1) или вперёд (+1).
+// Шаг вперёд за текущий день/месяц возвращает к последним 24 ч / 30 дням.
+function shiftPeriod(dir) {
+  const now = new Date();
+  if (activeRange === '24h') {
+    if (selectedDay === null && dir > 0) return;
+    const d = selectedDay ? parseIsoDay(selectedDay) : now;
+    d.setDate(d.getDate() + dir);
+    const next = isoDay(d);
+    selectedDay = next > isoDay(now) ? null : next;
   } else {
-    const data = dataCache30d[activeChartKey];
-    if (data) {
-      buildModalChart(activeChartKey, data, '30d');
-    } else {
-      document.getElementById('modalPoints').textContent = L.statusLoading;
-      loadChartData30d(activeChartKey).then(() => {
-        const d = dataCache30d[activeChartKey];
-        if (d && d.length) buildModalChart(activeChartKey, d, '30d');
-        else document.getElementById('modalPoints').textContent = L.statusErrLoad;
-      });
-    }
+    if (selectedMonth === null && dir > 0) return;
+    const d = selectedMonth ? parseIsoDay(`${selectedMonth}-01`) : new Date(now.getFullYear(), now.getMonth(), 1);
+    d.setMonth(d.getMonth() + dir);
+    const next = isoMonth(d);
+    selectedMonth = next > isoMonth(now) ? null : next;
+  }
+  syncPeriodControls();
+  showActiveChart();
+}
+
+function clearModalChart(message) {
+  if (modalChart) { modalChart.destroy(); modalChart = null; }
+  document.getElementById('modalPoints').textContent = message;
+}
+
+// Показывает график для активной карточки, диапазона и периода,
+// при необходимости подгружая данные
+async function showActiveChart() {
+  const cardKey = activeChartKey;
+  if (!cardKey) return;
+  const range = activeRange;
+  const period = currentPeriod();
+  const cache = range === '24h' ? dataCache : dataCache30d;
+  const key = cacheKey(cardKey, period);
+
+  if (!cache[key]) {
+    document.getElementById('modalPoints').textContent = L.statusLoading;
+    if (range === '24h') await loadChartData(cardKey, period);
+    else await loadChartData30d(cardKey, period);
+  }
+
+  // Пока грузилось, пользователь мог выбрать другой период или закрыть окно
+  if (cardKey !== activeChartKey || range !== activeRange || period !== currentPeriod()) return;
+
+  const data = cache[key];
+  if (!data) {
+    clearModalChart(L.statusErrLoad);
+  } else if (!data.length) {
+    const cfg = CHART_CONFIGS[cardKey];
+    document.getElementById('modalTitle').textContent =
+      (range === '30d' && cfg.title30d) ? cfg.title30d : cfg.title;
+    clearModalChart(period ? `${periodLabel(period)} · ${L.noDataPeriod}` : L.noDataPeriod);
+  } else {
+    buildModalChart(cardKey, data, range);
   }
 }
 
@@ -441,9 +543,11 @@ function buildModalChart(cardKey, data, range) {
   const title      = (is30d && cfg.title30d) ? cfg.title30d : cfg.title;
   const useY1      = is30d ? (cfg.hasY1_30d !== undefined ? cfg.hasY1_30d : cfg.hasY1) : cfg.hasY1;
 
+  const period = is30d ? selectedMonth : selectedDay;
+  const points = is30d ? `${data.length} ${L.chartDaysSuffix}` : `${data.length}${L.chartHoursSuffix}`;
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalPoints').textContent =
-    is30d ? `${data.length} ${L.chartDaysSuffix}` : `${data.length}${L.chartHoursSuffix}`;
+    period ? `${periodLabel(period)} · ${points}` : points;
 
   const maxTicks = is30d ? 30 : 24;
 
@@ -498,10 +602,13 @@ async function openChart(cardKey) {
   const cfg = CHART_CONFIGS[cardKey];
   if (!cfg) return;
 
-  // Reset range to 24h on open
+  // Reset range to 24h and period to the latest on open
   activeRange = '24h';
+  selectedDay = null;
+  selectedMonth = null;
   document.getElementById('rangeBtn24h').classList.add('active');
   document.getElementById('rangeBtn30d').classList.remove('active');
+  syncPeriodControls();
 
   document.getElementById('modalTitle').textContent = cfg.title;
   document.getElementById('modalPoints').textContent = L.statusLoading;
@@ -510,17 +617,19 @@ async function openChart(cardKey) {
   document.body.style.overflow = 'hidden';
   activeChartKey = cardKey;
 
-  if (!dataCache[cardKey]) {
+  if (!dataCache[cacheKey(cardKey, null)]) {
     await loadChartData(cardKey);
   }
-  const data = dataCache[cardKey];
+  const data = dataCache[cacheKey(cardKey, null)];
   if (!data || !data.length) { alert(L.noDataAlert); return; }
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      // Пока грузилось, могли закрыть окно или выбрать другой период
+      if (activeChartKey !== cardKey || activeRange !== '24h' || selectedDay !== null) return;
       buildModalChart(cardKey, data, '24h');
       // Prefetch 30d data in background
-      if (!dataCache30d[cardKey]) loadChartData30d(cardKey);
+      if (!dataCache30d[cacheKey(cardKey, null)]) loadChartData30d(cardKey);
     });
   });
 }
@@ -531,6 +640,8 @@ function closeChart() {
   if (modalChart) { modalChart.destroy(); modalChart = null; }
   activeChartKey = null;
   activeRange = '24h';
+  selectedDay = null;
+  selectedMonth = null;
 }
 
 // ============================================================
@@ -553,4 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
 window.openChart   = openChart;
 window.closeChart  = closeChart;
 window.switchRange = switchRange;
+window.shiftPeriod = shiftPeriod;
+window.selectDay   = selectDay;
+window.selectMonth = selectMonth;
 window.toggleLive  = toggleLive;

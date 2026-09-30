@@ -123,6 +123,12 @@
         <div class="chart-modal-sub" id="modalPoints"></div>
       </div>
       <div class="modal-controls">
+        <div class="period-nav">
+          <button class="btn" id="periodPrev" onclick="shiftPeriod(-1)">‹</button>
+          <input type="date" class="period-input" id="periodDay" onchange="selectDay(this.value)">
+          <input type="month" class="period-input" id="periodMonth" placeholder="YYYY-MM" onchange="selectMonth(this.value)" hidden>
+          <button class="btn" id="periodNext" onclick="shiftPeriod(1)" disabled>›</button>
+        </div>
         <div class="range-switch">
           <button class="btn active" id="rangeBtn24h" onclick="switchRange('24h')">24ч</button>
           <button class="btn" id="rangeBtn30d" onclick="switchRange('30d')">30д</button>
@@ -147,6 +153,7 @@ window.APP_LOCALE = {
   statusErrLoad: 'Ошибка загрузки',
   lastUpdatePrefix: 'Последнее: ',
   noDataAlert: 'Данные ещё не загружены',
+  noDataPeriod: 'Нет данных за этот период',
   dewptDeficitLabel: 'дефицит',
   rainDailyLabel: 'суточный',
   windGustLabel: 'порыв',
